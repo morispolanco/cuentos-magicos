@@ -83,14 +83,35 @@ export async function generateStoryAndPrompts(
 }
 
 export async function generateImage(prompt: string): Promise<string> {
+  try {
     const response = await ai.models.generateImages({
         model: 'imagen-3.0-generate-002',
         prompt: prompt,
-        config: { numberOfImages: 1, outputMimeType: 'image/jpeg' },
+        config: {
+            numberOfImages: 1,
+            outputMimeType: 'image/jpeg'
+        },
     });
 
-    const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-    return `data:image/jpeg;base64,${base64ImageBytes}`;
+    if (response.generatedImages?.[0]?.image?.imageBytes) {
+        const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
+        return `data:image/jpeg;base64,${base64ImageBytes}`;
+    } else {
+        throw new Error("La API de imágenes no devolvió una imagen válida.");
+    }
+  } catch (error) {
+    console.error("Error al generar la imagen con la API de Imagen:", error);
+    console.warn("La generación de imágenes ha fallado. Se utilizará una imagen de marcador de posición.");
+    
+    // Fallback to a placeholder image to avoid breaking the story flow.
+    const width = 800;
+    const height = 600;
+    const bgColor = "F7F3E9";
+    const textColor = "DC2626"; // A shade of red to indicate error
+    const text = "Error al crear la ilustración";
+
+    return `https://placehold.co/${width}x${height}/${bgColor}/${textColor}?text=${encodeURIComponent(text)}&font=chewy`;
+  }
 }
 
 export async function generateShortTitle(idea: string): Promise<string> {
