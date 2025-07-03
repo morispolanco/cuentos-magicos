@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { AgeRange, StoryPage, LoadingState } from './types';
 import StoryForm from './components/StoryForm';
@@ -33,6 +34,7 @@ const App: React.FC = () => {
   const [storyTitle, setStoryTitle] = useState<string>('');
   const [ageRange, setAgeRange] = useState<AgeRange>(AgeRange.EARLY_CHILDHOOD);
   const [numPages, setNumPages] = useState<number>(8);
+  const [useHqImages, setUseHqImages] = useState<boolean>(true);
   const [storyPages, setStoryPages] = useState<StoryPage[]>([]);
   const [loadingState, setLoadingState] = useState<LoadingState>({ isLoading: false, message: '' });
   const [error, setError] = useState<string>('');
@@ -86,7 +88,7 @@ const App: React.FC = () => {
           const page = initialPages[currentPageIndex];
 
           const [imageUrl, pcmData] = await Promise.all([
-              generateImage(page.imagePrompt),
+              generateImage(page.imagePrompt, useHqImages),
               generateAudio(page.text)
           ]);
           
@@ -107,7 +109,7 @@ const App: React.FC = () => {
       setLoadingState({ isLoading: false, message: '' });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idea, ageRange, numPages]);
+  }, [idea, ageRange, numPages, useHqImages]);
 
   const isStoryReady = storyPages.length > 0 && storyPages.every(p => p.imageUrl && p.audioUrl);
 
@@ -132,6 +134,8 @@ const App: React.FC = () => {
             setAgeRange={setAgeRange}
             numPages={numPages}
             setNumPages={setNumPages}
+            useHqImages={useHqImages}
+            setUseHqImages={setUseHqImages}
             onGenerate={handleGenerateStory}
             onSuggest={handleSuggestIdea}
             isLoading={loadingState.isLoading}

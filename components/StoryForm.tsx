@@ -10,6 +10,8 @@ interface StoryFormProps {
   setAgeRange: (age: AgeRange) => void;
   numPages: number;
   setNumPages: (pages: number) => void;
+  useHqImages: boolean;
+  setUseHqImages: (use: boolean) => void;
   onGenerate: () => void;
   onSuggest: () => void;
   isLoading: boolean;
@@ -22,6 +24,8 @@ const StoryForm: React.FC<StoryFormProps> = ({
   setAgeRange,
   numPages,
   setNumPages,
+  useHqImages,
+  setUseHqImages,
   onGenerate,
   onSuggest,
   isLoading,
@@ -93,6 +97,21 @@ const StoryForm: React.FC<StoryFormProps> = ({
               disabled={isLoading}
             />
           </div>
+        </div>
+
+        <div>
+          <label htmlFor="hq-images" className="flex items-center gap-3 cursor-pointer text-sm font-medium text-gray-700">
+              <input
+                  type="checkbox"
+                  id="hq-images"
+                  className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                  checked={useHqImages}
+                  onChange={(e) => setUseHqImages(e.target.checked)}
+                  disabled={isLoading}
+              />
+              <span>Usar ilustraciones de IA (alta calidad)</span>
+          </label>
+          <p className="text-xs text-gray-500 ml-7 mt-1">Desactiva esta opción para usar marcadores de posición gratuitos.</p>
         </div>
 
         <div>

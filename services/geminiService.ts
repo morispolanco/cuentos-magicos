@@ -82,7 +82,20 @@ export async function generateStoryAndPrompts(
   }
 }
 
-export async function generateImage(prompt: string): Promise<string> {
+export async function generateImage(prompt: string, useHqImages: boolean): Promise<string> {
+  const getPlaceholderUrl = (isError: boolean) => {
+    const width = 800;
+    const height = 600;
+    const bgColor = "F7F3E9";
+    const text = isError ? "Error al crear la ilustración" : "Ilustración de ejemplo";
+    const textColor = isError ? "DC2626" : "A0AEC0"; // Red for error, gray for placeholder
+    return `https://placehold.co/${width}x${height}/${bgColor}/${textColor}?text=${encodeURIComponent(text)}&font=chewy`;
+  };
+
+  if (!useHqImages) {
+    return Promise.resolve(getPlaceholderUrl(false));
+  }
+
   try {
     const response = await ai.models.generateImages({
         model: 'imagen-3.0-generate-002',
@@ -102,15 +115,7 @@ export async function generateImage(prompt: string): Promise<string> {
   } catch (error) {
     console.error("Error al generar la imagen con la API de Imagen:", error);
     console.warn("La generación de imágenes ha fallado. Se utilizará una imagen de marcador de posición.");
-    
-    // Fallback to a placeholder image to avoid breaking the story flow.
-    const width = 800;
-    const height = 600;
-    const bgColor = "F7F3E9";
-    const textColor = "DC2626"; // A shade of red to indicate error
-    const text = "Error al crear la ilustración";
-
-    return `https://placehold.co/${width}x${height}/${bgColor}/${textColor}?text=${encodeURIComponent(text)}&font=chewy`;
+    return getPlaceholderUrl(true);
   }
 }
 
