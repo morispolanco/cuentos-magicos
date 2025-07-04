@@ -3,49 +3,6 @@ import { StoryPage } from '../types';
 // This assumes JSZip is loaded from a CDN and available globally.
 declare var JSZip: any;
 
-function createWavFile(base64PcmData: string): Blob {
-  const pcmData = atob(base64PcmData);
-  const sampleRate = 24000;
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-  const blockAlign = numChannels * (bitsPerSample / 8);
-  const dataSize = pcmData.length;
-  const chunkSize = 16;
-  const format = 1; // PCM
-  const fileSize = 36 + dataSize;
-
-  const buffer = new ArrayBuffer(44);
-  const view = new DataView(buffer);
-
-  // RIFF header
-  writeString(view, 0, 'RIFF');
-  view.setUint32(4, fileSize, true);
-  writeString(view, 8, 'WAVE');
-
-  // fmt chunk
-  writeString(view, 12, 'fmt ');
-  view.setUint32(16, chunkSize, true);
-  view.setUint16(20, format, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-
-  // data chunk
-  writeString(view, 36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  const wavHeader = new Uint8Array(buffer);
-  const wavBody = new Uint8Array(pcmData.length);
-  for (let i = 0; i < pcmData.length; i++) {
-    wavBody[i] = pcmData.charCodeAt(i);
-  }
-
-  return new Blob([wavHeader, wavBody], { type: 'audio/wav' });
-}
-
 function writeString(view: DataView, offset: number, string: string) {
   for (let i = 0; i < string.length; i++) {
     view.setUint8(offset + i, string.charCodeAt(i));
@@ -54,13 +11,14 @@ function writeString(view: DataView, offset: number, string: string) {
 
 export const exportToHtml = (pages: StoryPage[], title: string) => {
     let pageContent = '';
+    const audioData = pages.map(page => page.pcmData || '');
+
     pages.forEach((page, index) => {
         pageContent += `
       <div class="page" id="page-${index + 1}" style="display: ${index === 0 ? 'flex' : 'none'};">
         <img src="${page.imageUrl}" alt="Ilustración para la página ${index + 1}">
         <div class="text-container">
             <p>${page.text}</p>
-            ${page.audioUrl ? `<audio controls src="${page.audioUrl}"></audio>` : ''}
         </div>
       </div>
     `;
@@ -74,25 +32,46 @@ export const exportToHtml = (pages: StoryPage[], title: string) => {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${title}</title>
       <style>
-        body { font-family: sans-serif; margin: 0; background-color: #f0f8ff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
-        .storybook-container { width: 90%; max-width: 800px; background: white; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow: hidden; }
+        body { font-family: sans-serif; margin: 0; background-color: #f0f8ff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; box-sizing: border-box; }
+        .storybook-container { position: relative; width: 90%; max-width: 800px; background: white; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow: hidden; }
         .page { display: flex; flex-direction: column; align-items: center; padding: 20px; animation: fadeIn 0.5s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         img { width: 100%; height: auto; border-radius: 8px; margin-bottom: 20px; max-height: 400px; object-fit: cover; }
         .text-container { text-align: center; }
         p { font-size: 1.2rem; line-height: 1.6; color: #333; }
-        audio { margin-top: 15px; width: 100%; }
-        .navigation { display: flex; justify-content: space-between; padding: 20px; width: 100%; box-sizing: border-box; }
+        .navigation { display: flex; justify-content: space-between; padding: 20px; width: 100%; max-width: 800px; box-sizing: border-box; }
         button { background-color: #4A90E2; color: white; border: none; padding: 10px 20px; border-radius: 5px; font-size: 1rem; cursor: pointer; transition: background-color 0.3s; }
         button:disabled { background-color: #ccc; cursor: not-allowed; }
         button:hover:not(:disabled) { background-color: #357ABD; }
-        #page-counter { font-size: 1rem; color: #555; }
+        #page-counter { font-size: 1rem; color: #555; align-self: center; }
+        .replay-audio-btn {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            transition: background-color 0.2s;
+        }
+        .replay-audio-btn:hover { background-color: rgba(0, 0, 0, 0.8); }
+        .replay-audio-btn svg { width: 24px; height: 24px; }
       </style>
     </head>
     <body>
-      <h1>${title}</h1>
+      <h1 style="text-align: center; color: #333;">${title}</h1>
       <div class="storybook-container">
         ${pageContent}
+        <button class="replay-audio-btn" id="replayBtn" title="Repetir narración">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 010 7.07"/></svg>
+        </button>
       </div>
       <div class="navigation">
         <button id="prevBtn">Anterior</button>
@@ -100,11 +79,67 @@ export const exportToHtml = (pages: StoryPage[], title: string) => {
         <button id="nextBtn">Siguiente</button>
       </div>
       <script>
+        const audioData = ${JSON.stringify(audioData)};
         let currentPage = 1;
         const totalPages = ${pages.length};
         const pageCounter = document.getElementById('page-counter');
         const prevBtn = document.getElementById('prevBtn');
         const nextBtn = document.getElementById('nextBtn');
+        const replayBtn = document.getElementById('replayBtn');
+        let audioContext = null;
+        let currentSource = null;
+
+        function initAudioContext() {
+            if (!audioContext) {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.error('Web Audio API is not supported in this browser.');
+                    replayBtn.style.display = 'none';
+                }
+            }
+        }
+        
+        async function playNarration(pageIndex) {
+            initAudioContext();
+            if (!audioContext || !audioData[pageIndex]) return;
+
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+
+            if (currentSource) {
+                try { currentSource.stop(); } catch(e) {}
+                currentSource.disconnect();
+            }
+
+            try {
+                const binaryString = window.atob(audioData[pageIndex]);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                const pcmData = new Int16Array(bytes.buffer);
+                const floatData = new Float32Array(pcmData.length);
+                
+                for (let i = 0; i < pcmData.length; i++) {
+                    floatData[i] = pcmData[i] / 32768.0;
+                }
+                
+                const audioBuffer = audioContext.createBuffer(1, floatData.length, 24000); // 1 channel, 24000 sample rate
+                audioBuffer.copyToChannel(floatData, 0);
+
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.start(0);
+                currentSource = source;
+            } catch (e) {
+                console.error("Failed to decode or play audio:", e);
+            }
+        }
         
         function showPage(pageNumber) {
           document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
@@ -113,11 +148,18 @@ export const exportToHtml = (pages: StoryPage[], title: string) => {
           prevBtn.disabled = pageNumber === 1;
           nextBtn.disabled = pageNumber === totalPages;
           currentPage = pageNumber;
+          playNarration(currentPage - 1);
         }
 
         prevBtn.addEventListener('click', () => { if (currentPage > 1) showPage(currentPage - 1); });
         nextBtn.addEventListener('click', () => { if (currentPage < totalPages) showPage(currentPage + 1); });
+        replayBtn.addEventListener('click', () => {
+          initAudioContext();
+          playNarration(currentPage - 1);
+        });
 
+        document.body.addEventListener('click', initAudioContext, { once: true });
+        
         showPage(1);
       <\/script>
     </body>
@@ -253,36 +295,5 @@ export const exportToEpub = async (pages: StoryPage[], title: string) => {
 };
 
 export const exportToWav = async (pages: StoryPage[], title: string) => {
-    let combinedPcmData = "";
-    for (const page of pages) {
-        if (page.pcmData) {
-            // atob decodes base64 string to binary string
-            combinedPcmData += atob(page.pcmData);
-        }
-    }
-
-    if (combinedPcmData.length === 0) {
-        alert("No hay audio para exportar.");
-        return;
-    }
-
-    // btoa re-encodes the combined binary string to base64
-    const combinedPcmDataB64 = btoa(combinedPcmData);
-    
-    // Use the existing helper to create a full WAV file from the combined PCM data
-    const wavBlob = createWavFile(combinedPcmDataB64);
-    
-    const url = URL.createObjectURL(wavBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${title.replace(/\s+/g, '_')}_audiolibro.wav`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-};
-
-
-export const createWavBlobFromPcm = (base64Pcm: string): Blob => {
-    return createWavFile(base64Pcm);
+    alert("La exportación a audiolibro WAV ya no está disponible. La narración ahora es generada en vivo por el navegador y no se puede guardar como un archivo.");
 };

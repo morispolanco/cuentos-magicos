@@ -6,30 +6,21 @@ import StoryViewer from './components/StoryViewer';
 import Loader from './components/Loader';
 import ExportControls from './components/ExportControls';
 import {
+  initAi,
   generateStoryIdea,
   generateShortTitle,
   generateCharacterDescription,
   generateStoryAndPrompts,
   generateImage,
-  generateAudio
+  generateNarrationAudio
 } from './services/geminiService';
-import { createWavBlobFromPcm } from './services/exportService';
-
-const blobToDataUrl = (blob: Blob): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (reader.error) {
-        reject(reader.error);
-      } else {
-        resolve(reader.result as string);
-      }
-    };
-    reader.readAsDataURL(blob);
-  });
-};
+import ApiKeyInput from './components/ApiKeyInput';
 
 const App: React.FC = () => {
+  const [isApiKeySet, setIsApiKeySet] = useState<boolean>(false);
+  const [apiKeyError, setApiKeyError] = useState<string>('');
+  const [stabilityApiKey, setStabilityApiKey] = useState<string>('');
+
   const [idea, setIdea] = useState<string>('');
   const [storyTitle, setStoryTitle] = useState<string>('');
   const [ageRange, setAgeRange] = useState<AgeRange>(AgeRange.EARLY_CHILDHOOD);
@@ -39,13 +30,26 @@ const App: React.FC = () => {
   const [loadingState, setLoadingState] = useState<LoadingState>({ isLoading: false, message: '' });
   const [error, setError] = useState<string>('');
 
+  const handleApiKeySubmit = (googleKey: string, stabilityKey: string) => {
+    try {
+      initAi(googleKey);
+      setStabilityApiKey(stabilityKey);
+      setIsApiKeySet(true);
+      setApiKeyError('');
+    } catch (err: any) {
+      console.error("API Key initialization failed:", err);
+      setApiKeyError(err.message || 'Una de las claves de API proporcionada no es válida.');
+      setIsApiKeySet(false);
+    }
+  };
+
   const handleSuggestIdea = async () => {
     setLoadingState({ isLoading: true, message: 'Buscando una idea...' });
     try {
       const newIdea = await generateStoryIdea();
       setIdea(newIdea);
-    } catch (err) {
-      setError('No se pudo sugerir una idea. Inténtalo de nuevo.');
+    } catch (err: any) {
+      setError(err.message || 'No se pudo sugerir una idea. Revisa tu clave de API e inténtalo de nuevo.');
       console.error(err);
     } finally {
       setLoadingState({ isLoading: false, message: '' });
@@ -63,55 +67,66 @@ const App: React.FC = () => {
     setLoadingState({ isLoading: true, message: 'Creando un título mágico...' });
 
     try {
-      // 0. Generate Short Title
       const title = await generateShortTitle(idea);
       setStoryTitle(title);
 
-      // 1. Generate character description for consistency
-      setLoadingState({ isLoading: true, message: 'Creando la base de tu cuento...' });
+      setLoadingState({ isLoading: true, message: 'Diseñando el personaje principal...' });
       const characterDesc = await generateCharacterDescription(idea);
-      setLoadingState({ isLoading: true, message: 'Escribiendo la historia...' });
       
-      // 2. Generate story text and image prompts
+      setLoadingState({ isLoading: true, message: 'Escribiendo la historia...' });
       const pagesData = await generateStoryAndPrompts(idea, ageRange, numPages, characterDesc);
       const initialPages = pagesData.map((p, i) => ({ ...p, id: i }));
       setStoryPages(initialPages);
 
-      // 3. Generate images and audio in parallel
-      for (let i = 0; i < initialPages.length; i++) {
-          const currentPageIndex = i;
-          setLoadingState({
-              isLoading: true,
-              message: `Creando página ${currentPageIndex + 1}/${numPages}... (Ilustración y narración)`
-          });
+      let finalPages = [...initialPages];
 
-          const page = initialPages[currentPageIndex];
+      for (let i = 0; i < finalPages.length; i++) {
+        const page = finalPages[i];
+        
+        setLoadingState({
+            isLoading: true,
+            message: `Creando ilustración (${i + 1}/${finalPages.length})...`,
+        });
 
-          const [imageUrl, pcmData] = await Promise.all([
-              generateImage(page.imagePrompt, useHqImages),
-              generateAudio(page.text)
-          ]);
-          
-          const wavBlob = createWavBlobFromPcm(pcmData);
-          const audioUrl = await blobToDataUrl(wavBlob);
-
-          setStoryPages(prevPages =>
-              prevPages.map(p =>
-                  p.id === currentPageIndex ? { ...p, imageUrl, audioUrl, pcmData } : p
-              )
-          );
+        const imageUrl = await generateImage(page.imagePrompt, useHqImages, stabilityApiKey);
+        finalPages[i] = { ...page, imageUrl };
+        setStoryPages([...finalPages]);
+        
+        setLoadingState({
+            isLoading: true,
+            message: `Generando narración (${i + 1}/${finalPages.length})...`,
+        });
+        const pcmData = await generateNarrationAudio(page.text);
+        finalPages[i] = { ...finalPages[i], pcmData };
+        setStoryPages([...finalPages]);
       }
 
       setLoadingState({ isLoading: false, message: '' });
     } catch (err: any) {
-      console.error(err);
-      setError(`Ocurrió un error: ${err.message}`);
+      console.error("Error general al generar el cuento:", err);
+      
+      let errorMessage = `Ocurrió un error inesperado. Por favor, revisa la consola.`;
+      const errStr = String(err?.message || err);
+
+      if (errStr.includes('API key not valid')) {
+          errorMessage = "La clave de API de Google AI no es válida. Por favor, verifica tu clave.";
+      } else if (errStr.includes('Stability AI')) {
+          errorMessage = err.message;
+      } else if (err.message) {
+          errorMessage = `Ocurrió un error: ${err.message}`;
+      }
+
+      setError(errorMessage);
+      setStoryPages([]); // Clear partially generated story on critical error
       setLoadingState({ isLoading: false, message: '' });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idea, ageRange, numPages, useHqImages]);
+  }, [idea, ageRange, numPages, useHqImages, stabilityApiKey]);
 
-  const isStoryReady = storyPages.length > 0 && storyPages.every(p => p.imageUrl && p.audioUrl);
+  const isStoryReady = storyPages.length > 0 && storyPages.every(p => p.imageUrl && p.pcmData);
+
+  if (!isApiKeySet) {
+    return <ApiKeyInput onApiKeySubmit={handleApiKeySubmit} initialError={apiKeyError} />;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-purple-100 via-blue-50 to-white py-10 px-4">
@@ -144,7 +159,7 @@ const App: React.FC = () => {
           
           {storyPages.length > 0 && (
             <>
-              <StoryViewer pages={storyPages} storyTitle={storyTitle} />
+              <StoryViewer pages={storyPages} storyTitle={storyTitle} isReady={isStoryReady} />
               <ExportControls pages={storyPages} storyTitle={storyTitle} isReady={isStoryReady} />
             </>
           )}
